@@ -15,6 +15,7 @@ contract TNT is ERC721, AccessControl {
 
     uint256 private _nextTokenId;
     mapping(uint256 => address) public tokenIssuers;
+    mapping(address => uint256[]) private _tokensByRecipient; // New mapping to track issued tokens
     bool public immutable revokable;
 
     /**
@@ -60,6 +61,8 @@ contract TNT is ERC721, AccessControl {
         _safeMint(recipient, tokenId);
         tokenIssuers[tokenId] = msg.sender;
         metadata[tokenId] = TokenMetadata(block.timestamp);
+        _tokensByRecipient[recipient].push(tokenId); // Track issued token
+
         emit TokenIssued(msg.sender, recipient, tokenId);
     }
 
@@ -84,12 +87,29 @@ contract TNT is ERC721, AccessControl {
     }
 
     /**
+     * @dev Returns the list of tokens issued to a recipient and their issuers.
+     * @param user The address of the user.
+     * @return tokenIds The list of token IDs issued to the user.
+     * @return issuers The list of addresses that issued each token.
+     */
+    function getIssuedTokens(address user) public view returns (uint256[] memory tokenIds, address[] memory issuers) {
+        uint256 length = _tokensByRecipient[user].length;
+        tokenIds = new uint256[](length);
+        issuers = new address[](length);
+
+        for (uint256 i = 0; i < length; i++) {
+            tokenIds[i] = _tokensByRecipient[user][i];
+            issuers[i] = tokenIssuers[tokenIds[i]];
+        }
+    }
+
+    /**
      * @dev Hook that is called before any token transfer.
      * It prevents all transfers except for minting and burning.
      * @param to The address of the recipient.
      * @param tokenId The ID of the token being transferred.
      */
-    
+
 
     function _update(address to, uint256 tokenId, address auth) 
     internal 
