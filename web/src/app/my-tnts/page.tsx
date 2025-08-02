@@ -7,9 +7,9 @@ import { useAccount } from "wagmi";
 import { TNTVaultFactories } from "@/utils/address";
 import { config } from "@/utils/config";
 import { getPublicClient } from "@wagmi/core";
-import { TNTFactoryAbi } from "@/contractsABI/TNTFactory";
-import { TNTAbi } from "@/contractsABI/TNT";
-import WalletLockScreen from "@/components/WalletLockScreen";
+import { TNTFactoryAbi } from "@/utils/contractsABI/TNTFactory";
+import { TNTAbi } from "@/utils/contractsABI/TNT";
+import { TNTCacheManager } from "@/utils/indexedDB";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 
@@ -40,6 +40,7 @@ export default function MyTNTsPage() {
   });
   const { address } = useAccount();
   const [mounted, setMounted] = useState(false);
+  const [cacheManager] = useState(() => new TNTCacheManager());
 
   useEffect(() => {
     setMounted(true);
@@ -86,11 +87,39 @@ export default function MyTNTsPage() {
   }, [address]);
 
   const fetchPaginatedTNTs = useCallback(
-    async (page: number) => {
+    async (page: number, forceRefresh: boolean = false) => {
       try {
         setIsLoading(true);
         setError(null);
 
+        if (!address) return;
+
+        // Try to get cached data first (unless force refresh)
+        if (!forceRefresh) {
+          const cachedResult = await cacheManager.getCachedTNTsPaginated(
+            address,
+            "owned",
+            page,
+            pagination.itemsPerPage
+          );
+
+          if (cachedResult) {
+            setOwnedTNTs(cachedResult.data);
+            setPagination((prev) => ({
+              ...prev,
+              currentPage: cachedResult.currentPage,
+              totalPages: cachedResult.totalPages,
+              totalCount: cachedResult.totalCount,
+            }));
+            setIsLoading(false);
+            return;
+          }
+        } else {
+          // Force refresh - invalidate cache first
+          await cacheManager.invalidateCache(address, "owned");
+        }
+
+        // If no cache or force refresh, fetch from blockchain
         const totalCount = await fetchTotalCount();
         const totalPages = Math.ceil(totalCount / pagination.itemsPerPage);
 
@@ -106,21 +135,12 @@ export default function MyTNTsPage() {
           return;
         }
 
-        const startIndex = (page - 1) * pagination.itemsPerPage;
-        const endIndex = Math.min(
-          startIndex + pagination.itemsPerPage,
-          totalCount
-        );
-
+        // Fetch all TNTs for caching
         let allTNTs: TNTDetails[] = [];
-        let currentIndex = 0;
-        let remainingItems = endIndex - startIndex;
 
         for (const [chainId, factoryAddress] of Object.entries(
           TNTVaultFactories
         )) {
-          if (remainingItems <= 0) break;
-
           try {
             const publicClient = getPublicClient(config as any, {
               chainId: parseInt(chainId),
@@ -139,28 +159,15 @@ export default function MyTNTsPage() {
 
             const chainCountNum = Number(chainCount);
 
-            if (currentIndex + chainCountNum <= startIndex) {
-              // Skip this entire chain
-              currentIndex += chainCountNum;
-              continue;
-            }
-
-            // Calculate start and end indices for this chain
-            const chainStartIndex = Math.max(0, startIndex - currentIndex);
-            const chainEndIndex = Math.min(
-              chainCountNum,
-              chainStartIndex + remainingItems
-            );
-
-            if (chainStartIndex < chainCountNum) {
+            if (chainCountNum > 0) {
               const tntAddresses = (await publicClient.readContract({
                 address: factoryAddress as `0x${string}`,
                 abi: TNTFactoryAbi,
                 functionName: "getPageDeployedTNTs",
                 args: [
                   address as `0x${string}`,
-                  BigInt(chainStartIndex),
-                  BigInt(chainEndIndex),
+                  BigInt(0),
+                  BigInt(chainCountNum),
                 ],
               })) as `0x${string}`[];
 
@@ -171,16 +178,34 @@ export default function MyTNTsPage() {
               );
 
               allTNTs = allTNTs.concat(chainTNTs);
-              remainingItems -= chainTNTs.length;
             }
-
-            currentIndex += chainCountNum;
           } catch (error) {
             console.error(`Error fetching TNTs for chain ${chainId}:`, error);
           }
         }
 
-        setOwnedTNTs(allTNTs);
+        // Cache all TNTs
+        if (allTNTs.length > 0) {
+          try {
+            await cacheManager.cacheTNTs(allTNTs, address, "owned");
+          } catch (cacheError) {
+            console.warn(
+              "Failed to cache TNTs, but continuing with display:",
+              cacheError
+            );
+            // Continue even if caching fails
+          }
+        }
+
+        // Apply pagination to display
+        const startIndex = (page - 1) * pagination.itemsPerPage;
+        const endIndex = Math.min(
+          startIndex + pagination.itemsPerPage,
+          allTNTs.length
+        );
+        const paginatedTNTs = allTNTs.slice(startIndex, endIndex);
+
+        setOwnedTNTs(paginatedTNTs);
       } catch (error) {
         console.error("Error fetching paginated TNTs:", error);
         setError("Failed to fetch TNTs. Please try again later.");
@@ -188,7 +213,7 @@ export default function MyTNTsPage() {
         setIsLoading(false);
       }
     },
-    [address, pagination.itemsPerPage, fetchTotalCount]
+    [address, pagination.itemsPerPage, fetchTotalCount, cacheManager]
   );
 
   const fetchTNTDetailsForAddresses = async (
@@ -292,10 +317,6 @@ export default function MyTNTsPage() {
 
   if (!mounted) return null;
 
-  if (!address) {
-    return <WalletLockScreen />;
-  }
-
   return (
     <div className="min-h-screen relative bg-black text-white">
       {/* Background elements */}
@@ -332,26 +353,53 @@ export default function MyTNTsPage() {
               of {pagination.totalCount} TNTs
             </p>
 
-            <Link
-              href="/create"
-              className="text-sm text-amber-400 hover:text-amber-300 transition-colors flex items-center gap-1"
-            >
-              <svg
-                xmlns="http://www.w3.org/2000/svg"
-                width="16"
-                height="16"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                className="w-4 h-4"
+            <div className="flex items-center gap-3">
+              <button
+                onClick={() => fetchPaginatedTNTs(pagination.currentPage, true)}
+                className="text-sm text-slate-400 hover:text-amber-300 transition-colors flex items-center gap-1"
+                title="Refresh to check for new TNTs"
               >
-                <path d="M12 5v14M5 12h14" />
-              </svg>
-              Create New TNT
-            </Link>
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="w-4 h-4"
+                >
+                  <path d="M3 12a9 9 0 0 1 9-9 9.75 9.75 0 0 1 6.74 2.74L21 8" />
+                  <path d="M21 3v5h-5" />
+                  <path d="M21 12a9 9 0 0 1-9 9 9.75 9.75 0 0 1-6.74-2.74L3 16" />
+                  <path d="M3 21v-5h5" />
+                </svg>
+                Refresh
+              </button>
+
+              <Link
+                href="/create"
+                className="text-sm text-amber-400 hover:text-amber-300 transition-colors flex items-center gap-1"
+              >
+                <svg
+                  xmlns="http://www.w3.org/2000/svg"
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                  className="w-4 h-4"
+                >
+                  <path d="M12 5v14M5 12h14" />
+                </svg>
+                Create New TNT
+              </Link>
+            </div>
           </div>
         )}
 
@@ -388,7 +436,9 @@ export default function MyTNTsPage() {
                 </div>
                 <p className="text-red-400 mb-4">{error}</p>
                 <Button
-                  onClick={() => fetchPaginatedTNTs(pagination.currentPage)}
+                  onClick={() =>
+                    fetchPaginatedTNTs(pagination.currentPage, true)
+                  }
                   className="bg-gradient-to-r from-purple-600 to-red-500 hover:from-purple-700 hover:to-red-600 text-white border-none"
                 >
                   Retry
@@ -402,7 +452,7 @@ export default function MyTNTsPage() {
               {ownedTNTs.map((tnt) => (
                 <Card
                   key={`${tnt.chainId}-${tnt.address}`}
-                  className="group bg-[#0B101D] backdrop-blur-sm border border-slate-700/30 rounded-lg overflow-hidden shadow-md hover:shadow-purple-900/10 hover:border-amber-500/20 transition-all duration-300"
+                  className="group bg-gradient-to-b from-slate-800/60 to-slate-900/90 backdrop-blur-sm border border-slate-700/30 rounded-lg overflow-hidden shadow-md hover:shadow-purple-900/10 hover:border-amber-500/20 transition-all duration-300"
                 >
                   {tnt.imageURL ? (
                     <div className="relative w-full h-40 overflow-hidden">
@@ -491,7 +541,7 @@ export default function MyTNTsPage() {
                   onClick={() => handlePageChange(pagination.currentPage - 1)}
                   disabled={pagination.currentPage === 1}
                   variant="outline"
-                  className={`border-slate-700 bg-[#0B101D] text-white hover:bg-slate-700 hover:text-white ${
+                  className={`border-slate-700 bg-slate-800/50 text-white hover:bg-slate-700 hover:text-white ${
                     pagination.currentPage === 1
                       ? "opacity-50 cursor-not-allowed"
                       : ""
@@ -548,7 +598,7 @@ export default function MyTNTsPage() {
                   onClick={() => handlePageChange(pagination.currentPage + 1)}
                   disabled={pagination.currentPage === pagination.totalPages}
                   variant="outline"
-                  className={`border-slate-700 bg-[#0B101D] text-white hover:bg-slate-700 hover:text-white ${
+                  className={`border-slate-700 bg-slate-800/50 text-white hover:bg-slate-700 hover:text-white ${
                     pagination.currentPage === pagination.totalPages
                       ? "opacity-50 cursor-not-allowed"
                       : ""
