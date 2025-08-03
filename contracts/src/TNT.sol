@@ -10,7 +10,7 @@ interface IFactory {
 }
 
 contract TNT is ERC721, AccessControl {
-    error InvalidRecipient();
+    error InvalidUser();
     error NotRevokable();
     error NotIssuer();
     error NotOwner();
@@ -22,10 +22,9 @@ contract TNT is ERC721, AccessControl {
 
     uint256 private _nextTokenId;
     mapping(uint256 => address) public tokenIssuers;
-    mapping(address => uint256[]) public _tokensByRecipient;        
-    mapping(address => uint256[]) public _activeTokensByRecipient;  
-    address[] public _allRecipients;                                
-    mapping(address => bool) public _isRecipient;                   
+    mapping(address => uint256[]) public _tokensByUser;  
+    address[] public _allUsers;                                
+    mapping(address => bool) public _isUser;                   
     bool public immutable revokable;
     address public factoryContract;
     string public imageURL;
@@ -36,7 +35,7 @@ contract TNT is ERC721, AccessControl {
 
     mapping(uint256 => TokenMetadata) public metadata;
 
-    event TokenIssued(address indexed issuer, address indexed recipient, uint256 tokenId);
+    event TokenIssued(address indexed issuer, address indexed user, uint256 tokenId);
     event TokenRevoked(address indexed revoker, uint256 tokenId);
 
     constructor(
@@ -55,22 +54,21 @@ contract TNT is ERC721, AccessControl {
         imageURL = _imageURL;
     }
 
-    function issueToken(address recipient) public onlyRole(MINTER_ROLE) {
-        if (recipient == address(0)) revert InvalidRecipient();
+    function issueToken(address user) public onlyRole(MINTER_ROLE) {
+        if (user == address(0)) revert InvalidUser();
         
         uint256 tokenId = _nextTokenId++;
-        _safeMint(recipient, tokenId);
+        _safeMint(user, tokenId);
         tokenIssuers[tokenId] = msg.sender;
         metadata[tokenId] = TokenMetadata(block.timestamp);
-        _tokensByRecipient[recipient].push(tokenId);
-        _activeTokensByRecipient[recipient].push(tokenId);
+        _tokensByUser[user].push(tokenId);
         
-        if (!_isRecipient[recipient]) {
-            _allRecipients.push(recipient);
-            _isRecipient[recipient] = true;
+        if (!_isUser[user]) {
+            _allUsers.push(user);
+            _isUser[user] = true;
         }
-        emit TokenIssued(msg.sender, recipient, tokenId);
-        IFactory(factoryContract).registerIssuedToken(recipient, address(this));
+        emit TokenIssued(msg.sender, user, tokenId);
+        IFactory(factoryContract).registerIssuedToken(user, address(this));
     }
     
     function setImageURL(string memory newURL) external onlyRole(DEFAULT_ADMIN_ROLE) {
@@ -86,7 +84,7 @@ contract TNT is ERC721, AccessControl {
         _burn(tokenId);
         emit TokenRevoked(msg.sender, tokenId);
         
-        if (_activeTokensByRecipient[tokenOwner].length == 0) {
+        if (_tokensByUser[tokenOwner].length == 0) {
             IFactory(factoryContract).unregisterToken(tokenOwner, address(this));
         }
     }
@@ -95,13 +93,13 @@ contract TNT is ERC721, AccessControl {
         if (ownerOf(tokenId) != msg.sender) revert NotOwner();
         _removeFromActive(msg.sender, tokenId);
         _burn(tokenId);
-        if (_activeTokensByRecipient[msg.sender].length == 0) {
+        if (_tokensByUser[msg.sender].length == 0) {
             IFactory(factoryContract).unregisterToken(msg.sender, address(this));
         }
     }
 
     function _removeFromActive(address user, uint256 tokenId) internal {
-        uint256[] storage active = _activeTokensByRecipient[user];
+        uint256[] storage active = _tokensByUser[user];
         uint256 len = active.length;
         for (uint256 i = 0; i < len; i++) {
             if (active[i] == tokenId) {
@@ -112,40 +110,29 @@ contract TNT is ERC721, AccessControl {
         }
     }
     
-    function getAllIssuedTokens(address user) public view returns (uint256[] memory tokenIds, address[] memory issuers) {
-        uint256 len = _tokensByRecipient[user].length;
-        tokenIds = new uint256[](len);
-        issuers = new address[](len);
-
-        for (uint256 i = 0; i < len; i++) {
-            tokenIds[i] = _tokensByRecipient[user][i];
-            issuers[i] = tokenIssuers[tokenIds[i]];
-        }
-    }
-
     function getActiveTokens(address user) public view returns (uint256[] memory tokenIds, address[] memory issuers) {
-        uint256 len = _activeTokensByRecipient[user].length;
+        uint256 len = _tokensByUser[user].length;
         tokenIds = new uint256[](len);
         issuers = new address[](len);
 
         for (uint256 i = 0; i < len; i++) {
-            tokenIds[i] = _activeTokensByRecipient[user][i];
+            tokenIds[i] = _tokensByUser[user][i];
             issuers[i] = tokenIssuers[tokenIds[i]];
         }
     }
 
-    function hasActiveTokens(address user) public view returns (bool) { return _activeTokensByRecipient[user].length > 0; }
-    function getActiveTokenCount(address user) public view returns (uint256) { return _activeTokensByRecipient[user].length; }
-    function getAllParticipantsCount() public view returns (uint256) { return _allRecipients.length; }
+    function hasActiveTokens(address user) public view returns (bool) { return _tokensByUser[user].length > 0; }
+    function getActiveTokenCount(address user) public view returns (uint256) { return _tokensByUser[user].length; }
+    function getAllParticipantsCount() public view returns (uint256) { return _allUsers.length; }
 
-    function getRecipients(uint256 start, uint256 end) public view returns (address[] memory) {
-        if (start > end || start > _allRecipients.length) revert InvalidIndex();
-        if (end >= _allRecipients.length)  end = _allRecipients.length;
+    function getUsers(uint256 start, uint256 end) public view returns (address[] memory) {
+        if (start > end || start > _allUsers.length) revert InvalidIndex();
+        if (end >= _allUsers.length)  end = _allUsers.length;
 
         uint256 len = end - start;
         address[] memory result = new address[](len);
         for (uint256 i = 0; i < len; i++) {
-            result[i] = _allRecipients[start + i];
+            result[i] = _allUsers[start + i];
         }
         return result;
     }

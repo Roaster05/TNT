@@ -10,6 +10,7 @@ contract Factory {
     mapping(address => address[]) public deployedTNTs;
     mapping(address => address[]) public userTNTs;
     mapping(address => bool) public isDeployedTNT;
+    mapping(address => mapping(address => bool)) private userHasTNT;
 
     event TNTCreated(address indexed owner, address tntAddress);
     event TokenRegistered(address indexed user, address indexed tntAddress);
@@ -30,18 +31,15 @@ contract Factory {
     }
     
     function registerIssuedToken(address user, address tntAddr) external onlyDeployedTNT {
-        address[] storage userTokens = userTNTs[user];
-        uint256 len = userTokens.length;
-        
-        for (uint256 i = 0; i < len; i++) {
-            if (userTokens[i] == tntAddr) return;
-        }
-        
-        userTokens.push(tntAddr);
+        if (userHasTNT[user][tntAddr]) return;
+        userTNTs[user].push(tntAddr);
+        userHasTNT[user][tntAddr] = true;
         emit TokenRegistered(user, tntAddr);
     }
 
     function unregisterToken(address user, address tntAddr) external onlyDeployedTNT {
+        if (!userHasTNT[user][tntAddr]) return;
+        
         address[] storage userTokens = userTNTs[user];
         uint256 len = userTokens.length;
         
@@ -49,6 +47,7 @@ contract Factory {
             if (userTokens[i] == tntAddr) {
                 userTokens[i] = userTokens[len - 1];
                 userTokens.pop();
+                userHasTNT[user][tntAddr] = false;
                 emit TokenUnregistered(user, tntAddr);
                 break;
             }
