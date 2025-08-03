@@ -22,7 +22,6 @@ contract TNT is ERC721, AccessControl {
 
     uint256 private _nextTokenId;
     mapping(uint256 => address) public tokenIssuers;
-    mapping(address => uint256[]) public _tokensByRecipient;        
     mapping(address => uint256[]) public _activeTokensByRecipient;  
     address[] public _allRecipients;                                
     mapping(address => bool) public _isRecipient;                   
@@ -62,7 +61,6 @@ contract TNT is ERC721, AccessControl {
         _safeMint(recipient, tokenId);
         tokenIssuers[tokenId] = msg.sender;
         metadata[tokenId] = TokenMetadata(block.timestamp);
-        _tokensByRecipient[recipient].push(tokenId);
         _activeTokensByRecipient[recipient].push(tokenId);
         
         if (!_isRecipient[recipient]) {
@@ -112,17 +110,6 @@ contract TNT is ERC721, AccessControl {
         }
     }
     
-    function getAllIssuedTokens(address user) public view returns (uint256[] memory tokenIds, address[] memory issuers) {
-        uint256 len = _tokensByRecipient[user].length;
-        tokenIds = new uint256[](len);
-        issuers = new address[](len);
-
-        for (uint256 i = 0; i < len; i++) {
-            tokenIds[i] = _tokensByRecipient[user][i];
-            issuers[i] = tokenIssuers[tokenIds[i]];
-        }
-    }
-
     function getActiveTokens(address user) public view returns (uint256[] memory tokenIds, address[] memory issuers) {
         uint256 len = _activeTokensByRecipient[user].length;
         tokenIds = new uint256[](len);
