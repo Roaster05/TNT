@@ -2,7 +2,7 @@
 
 import { useAccount } from "wagmi";
 import { usePathname } from "next/navigation";
-import { useEffect, useState } from "react";
+import { useEffect, useState, useCallback } from "react";
 import WalletLockScreen from "@/components/WalletLockScreen";
 
 interface ProtectedRouteProviderProps {
@@ -22,14 +22,17 @@ export default function ProtectedRouteProvider({
   // Check if current route is public
   const isPublicRoute = publicRoutes.includes(pathname);
 
-  useEffect(() => {
-    // Add a small delay to prevent flash of loading state
+  const handleLoadingTimeout = useCallback(() => {
     const timer = setTimeout(() => {
       setIsLoading(false);
-    }, 500);
+    }, 300); // Reduced from 500ms for better UX
 
     return () => clearTimeout(timer);
   }, []);
+
+  useEffect(() => {
+    return handleLoadingTimeout();
+  }, [handleLoadingTimeout]);
 
   // Show loading state briefly to prevent flash
   if (isLoading) {

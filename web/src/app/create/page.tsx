@@ -14,6 +14,7 @@ import { TNTFactoryAbi } from "@/utils/contractsABI/TNTFactory";
 import { Info } from "lucide-react";
 import { useTheme } from "next-themes";
 import { getPublicClient } from "@wagmi/core";
+import React from "react";
 
 interface DeployContractProps {
   tokenName: string;
@@ -46,7 +47,7 @@ const fields = [
   },
 ];
 
-export default function CreateTNT() {
+const CreateTNT = React.memo(() => {
   const [formData, setFormData] = useState<DeployContractProps>({
     tokenName: "",
     tokenSymbol: "",
@@ -375,4 +376,8 @@ export default function CreateTNT() {
       </div>
     </div>
   );
-}
+});
+
+CreateTNT.displayName = 'CreateTNT';
+
+export default CreateTNT;

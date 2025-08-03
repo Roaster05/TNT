@@ -7,6 +7,8 @@ import { Menu, X } from "lucide-react";
 import Image from "next/image";
 import { ConnectButton } from "@rainbow-me/rainbowkit";
 import Link from "next/link";
+import React from "react";
+
 interface NavLink {
   name: string;
   href: string;
@@ -18,7 +20,7 @@ const appLinks = [
   { name: "Profile", href: "/profile" },
 ];
 
-export function Navbar() {
+export const Navbar = React.memo(() => {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
 
@@ -94,4 +96,6 @@ export function Navbar() {
       )}
     </header>
   );
-}
+});
+
+Navbar.displayName = 'Navbar';

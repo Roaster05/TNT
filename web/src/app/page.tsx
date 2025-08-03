@@ -5,8 +5,9 @@ import { FeaturesSection } from "@/components/LandingPage/features-section";
 import { CtaSection } from "@/components/LandingPage/cta-section";
 import { Footer } from "@/components/Footer";
 import { ScrollAnimationProvider } from "@/components/scroll-animation-provider";
+import React from "react";
 
-export default function Home() {
+const HomePage = React.memo(() => {
   return (
     <ScrollAnimationProvider>
       <main className="min-h-screen bg-gradient-to-b from-black to-slate-950 text-white overflow-hidden">
@@ -21,4 +22,8 @@ export default function Home() {
       </main>
     </ScrollAnimationProvider>
   );
-}
+});
+
+HomePage.displayName = 'HomePage';
+
+export default HomePage;

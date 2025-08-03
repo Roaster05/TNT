@@ -12,6 +12,7 @@ import { TNTAbi } from "@/utils/contractsABI/TNT";
 import { TNTCacheManager } from "@/utils/indexedDB";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import React from "react";
 
 interface TNTDetails {
   chainId: string;
@@ -28,7 +29,20 @@ interface PaginationInfo {
   itemsPerPage: number;
 }
 
-export default function ProfilePage() {
+const Profile = React.memo(() => {
+  const { address, isConnected } = useAccount();
+
+  if (!isConnected) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-black text-white">
+        <div className="text-center">
+          <h1 className="text-2xl font-bold mb-4">Please connect your wallet</h1>
+          <p className="text-slate-400">You need to connect your wallet to view your profile.</p>
+        </div>
+      </div>
+    );
+  }
+
   const [ownedTNTs, setOwnedTNTs] = useState<TNTDetails[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -38,7 +52,6 @@ export default function ProfilePage() {
     totalCount: 0,
     itemsPerPage: 6,
   });
-  const { address } = useAccount();
   const [mounted, setMounted] = useState(false);
   const [cacheManager] = useState(() => new TNTCacheManager());
 
@@ -638,4 +651,8 @@ export default function ProfilePage() {
       </div>
     </div>
   );
-}
+});
+
+Profile.displayName = 'Profile';
+
+export default Profile;

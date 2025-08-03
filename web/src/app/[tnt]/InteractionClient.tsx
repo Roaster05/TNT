@@ -106,13 +106,13 @@ export default function InteractionClient() {
       setUserTokens({ activeTokens: [], inactiveTokens: [], totalTokens: 0 });
       return;
     }
-
+  
     try {
       setIsLoadingUserTokens(true);
       const publicClient = getPublicClient(config as any, { chainId });
       if (!publicClient) return;
-
-      // Get user's tokens from this specific TNT contract
+  
+      // Fetch all tokens and active tokens in parallel
       const [allTokensData, activeTokensData] = await Promise.all([
         publicClient.readContract({
           address: tokenAddress,
@@ -127,37 +127,47 @@ export default function InteractionClient() {
           args: [address],
         }) as Promise<[bigint[], `0x${string}`[]]>,
       ]);
-
-      const [allTokenIds, allIssuers] = allTokensData;
-      const [activeTokenIds, activeIssuers] = activeTokensData;
-
-      if (allTokenIds.length > 0) {
-        const activeTokenNumbers = activeTokenIds.map(id => Number(id));
-        const allTokenNumbers = allTokenIds.map(id => Number(id));
-
-        const activeTokens = activeTokenNumbers.map((tokenId, idx) => ({
-          tokenId,
-          issuer: activeIssuers[idx] || '0x0',
-        }));
-
-        const inactiveTokens = allTokenNumbers
-          .filter(tokenId => !activeTokenNumbers.includes(tokenId))
-          .map(tokenId => {
-            const originalIndex = allTokenNumbers.indexOf(tokenId);
-            return {
-              tokenId,
-              issuer: allIssuers[originalIndex] || '0x0',
-            };
-          });
-
-        setUserTokens({
-          activeTokens,
-          inactiveTokens,
-          totalTokens: allTokenNumbers.length,
-        });
-      } else {
+  
+      const [allTokenIdsRaw, allIssuers] = allTokensData;
+      const [activeTokenIdsRaw, activeIssuers] = activeTokensData;
+  
+      if (allTokenIdsRaw.length === 0) {
         setUserTokens({ activeTokens: [], inactiveTokens: [], totalTokens: 0 });
+        return;
       }
+  
+      // Convert BigInts to numbers
+      const allTokenIds = allTokenIdsRaw.map(id => Number(id));
+      const activeTokenIds = activeTokenIdsRaw.map(id => Number(id));
+  
+      // Use a set for quick membership check
+      const activeTokenSet = new Set(activeTokenIds);
+  
+      // Map active tokens with issuer
+      const activeTokens = activeTokenIds.map((tokenId, idx) => ({
+        tokenId,
+        issuer: activeIssuers[idx] || '0x0',
+      }));
+  
+      // Map inactive tokens with issuer, filtering efficiently
+      const inactiveTokens = [];
+      const allTokenIdToIndex = new Map(allTokenIds.map((id, i) => [id, i]));
+  
+      for (const tokenId of allTokenIds) {
+        if (!activeTokenSet.has(tokenId)) {
+          const originalIndex = allTokenIdToIndex.get(tokenId) ?? -1;
+          inactiveTokens.push({
+            tokenId,
+            issuer: originalIndex !== -1 ? (allIssuers[originalIndex] || '0x0') : '0x0',
+          });
+        }
+      }
+  
+      setUserTokens({
+        activeTokens,
+        inactiveTokens,
+        totalTokens: allTokenIds.length,
+      });
     } catch (error) {
       console.error("Error fetching user tokens:", error);
       setUserTokens({ activeTokens: [], inactiveTokens: [], totalTokens: 0 });
@@ -165,6 +175,7 @@ export default function InteractionClient() {
       setIsLoadingUserTokens(false);
     }
   }, [tokenAddress, chainId, address]);
+  
 
   const formatAddress = (address: string) => {
     return `${address.substring(0, 6)}...${address.substring(address.length - 4)}`;

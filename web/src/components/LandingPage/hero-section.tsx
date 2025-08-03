@@ -6,7 +6,9 @@ import { SectionWrapper } from "@/components/ui/section-wrapper";
 import Image from "next/image";
 import TNT from "@/components/icons/TNT.svg";
 import Link from "next/link";
-export function HeroSection() {
+import React from "react";
+
+export const HeroSection = React.memo(() => {
   const [isVisible, setIsVisible] = useState(false);
 
   useEffect(() => {
@@ -94,6 +96,7 @@ export function HeroSection() {
                       width={80}
                       height={80}
                       className="w-16 h-16 md:w-20 md:h-20 object-contain"
+                      priority
                     />
                   </div>
                 </div>
@@ -107,4 +110,6 @@ export function HeroSection() {
       </div>
     </SectionWrapper>
   );
-}
+});
+
+HeroSection.displayName = 'HeroSection';

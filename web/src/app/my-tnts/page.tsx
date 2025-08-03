@@ -12,6 +12,7 @@ import { TNTAbi } from "@/utils/contractsABI/TNT";
 import { TNTCacheManager } from "@/utils/indexedDB";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import React from "react";
 
 interface TNTDetails {
   chainId: string;
@@ -28,7 +29,7 @@ interface PaginationInfo {
   itemsPerPage: number;
 }
 
-export default function MyTNTsPage() {
+const MyTNTsPage = React.memo(() => {
   const [ownedTNTs, setOwnedTNTs] = useState<TNTDetails[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -48,26 +49,24 @@ export default function MyTNTsPage() {
 
   const fetchTotalCount = useCallback(async (): Promise<number> => {
     try {
-      let totalCount = 0;
-
       const chainPromises = Object.entries(TNTVaultFactories).map(
         async ([chainId, factoryAddress]) => {
           try {
             const publicClient = getPublicClient(config as any, {
               chainId: parseInt(chainId),
             });
-
+  
             if (!publicClient || !address) {
               return 0;
             }
-
+  
             const count = (await publicClient.readContract({
               address: factoryAddress as `0x${string}`,
               abi: TNTFactoryAbi,
               functionName: "getDeployedTNTCount",
               args: [address as `0x${string}`],
             })) as bigint;
-
+  
             return Number(count);
           } catch (error) {
             console.error(`Error fetching count for chain ${chainId}:`, error);
@@ -75,26 +74,22 @@ export default function MyTNTsPage() {
           }
         }
       );
-
       const results = await Promise.all(chainPromises);
-      totalCount = results.reduce((sum, count) => sum + count, 0);
-
-      return totalCount;
+      return results.reduce((sum, count) => sum + count, 0);
     } catch (error) {
       console.error("Error fetching total count:", error);
       return 0;
     }
   }, [address]);
-
+  
   const fetchPaginatedTNTs = useCallback(
     async (page: number, forceRefresh: boolean = false) => {
       try {
         setIsLoading(true);
         setError(null);
-
+  
         if (!address) return;
-
-        // Try to get cached data first (unless force refresh)
+  
         if (!forceRefresh) {
           const cachedResult = await cacheManager.getCachedTNTsPaginated(
             address,
@@ -102,7 +97,7 @@ export default function MyTNTsPage() {
             page,
             pagination.itemsPerPage
           );
-
+  
           if (cachedResult) {
             setOwnedTNTs(cachedResult.data);
             setPagination((prev) => ({
@@ -115,51 +110,38 @@ export default function MyTNTsPage() {
             return;
           }
         } else {
-          // Force refresh - invalidate cache first
           await cacheManager.invalidateCache(address, "owned");
         }
-
-        // If no cache or force refresh, fetch from blockchain
-        const totalCount = await fetchTotalCount();
-        const totalPages = Math.ceil(totalCount / pagination.itemsPerPage);
-
-        setPagination((prev) => ({
-          ...prev,
-          currentPage: page,
-          totalPages,
-          totalCount,
-        }));
-
-        if (totalCount === 0) {
-          setOwnedTNTs([]);
-          return;
-        }
-
-        // Fetch all TNTs for caching
-        let allTNTs: TNTDetails[] = [];
-
-        for (const [chainId, factoryAddress] of Object.entries(
-          TNTVaultFactories
-        )) {
-          try {
-            const publicClient = getPublicClient(config as any, {
-              chainId: parseInt(chainId),
-            });
-
-            if (!publicClient || !address) {
-              continue;
+  
+        const countsPerChain = await Promise.all(
+          Object.entries(TNTVaultFactories).map(async ([chainId, factoryAddress]) => {
+            try {
+              const publicClient = getPublicClient(config as any, {
+                chainId: parseInt(chainId),
+              });
+              if (!publicClient || !address) return { chainId, count: 0, factoryAddress, publicClient };
+  
+              const count = (await publicClient.readContract({
+                address: factoryAddress as `0x${string}`,
+                abi: TNTFactoryAbi,
+                functionName: "getDeployedTNTCount",
+                args: [address as `0x${string}`],
+              })) as bigint;
+  
+              return { chainId, count: Number(count), factoryAddress, publicClient };
+            } catch (error) {
+              console.error(`Error fetching count for chain ${chainId}:`, error);
+              return { chainId, count: 0, factoryAddress, publicClient: null };
             }
-
-            const chainCount = (await publicClient.readContract({
-              address: factoryAddress as `0x${string}`,
-              abi: TNTFactoryAbi,
-              functionName: "getDeployedTNTCount",
-              args: [address as `0x${string}`],
-            })) as bigint;
-
-            const chainCountNum = Number(chainCount);
-
-            if (chainCountNum > 0) {
+          })
+        );
+  
+        const addressesPerChain = await Promise.all(
+          countsPerChain.map(async ({ chainId, count, factoryAddress, publicClient }) => {
+            if (!publicClient || !factoryAddress || count === 0) {
+              return { chainId, tntAddresses: [] as `0x${string}`[], publicClient };
+            }
+            try {
               const tntAddresses = (await publicClient.readContract({
                 address: factoryAddress as `0x${string}`,
                 abi: TNTFactoryAbi,
@@ -167,45 +149,47 @@ export default function MyTNTsPage() {
                 args: [
                   address as `0x${string}`,
                   BigInt(0),
-                  BigInt(chainCountNum),
+                  BigInt(count),
                 ],
               })) as `0x${string}`[];
-
-              const chainTNTs = await fetchTNTDetailsForAddresses(
-                tntAddresses,
-                chainId,
-                publicClient
-              );
-
-              allTNTs = allTNTs.concat(chainTNTs);
+  
+              return { chainId, tntAddresses, publicClient };
+            } catch (error) {
+              console.error(`Error fetching TNT addresses for chain ${chainId}:`, error);
+              return { chainId, tntAddresses: [] as `0x${string}`[], publicClient };
             }
-          } catch (error) {
-            console.error(`Error fetching TNTs for chain ${chainId}:`, error);
-          }
-        }
-
-        // Cache all TNTs
+          })
+        );
+  
+        const tntDetailsPerChain = await Promise.all(
+          addressesPerChain.map(({ chainId, tntAddresses, publicClient }) =>
+            fetchTNTDetailsForAddresses(tntAddresses, chainId, publicClient)
+          )
+        );
+  
+        let allTNTs: TNTDetails[] = tntDetailsPerChain.flat();
+  
         if (allTNTs.length > 0) {
           try {
             await cacheManager.cacheTNTs(allTNTs, address, "owned");
           } catch (cacheError) {
-            console.warn(
-              "Failed to cache TNTs, but continuing with display:",
-              cacheError
-            );
-            // Continue even if caching fails
+            console.warn("Failed to cache TNTs, but continuing with display:", cacheError);
           }
         }
-
-        // Apply pagination to display
+  
+        const totalCount = allTNTs.length;
+        const totalPages = Math.ceil(totalCount / pagination.itemsPerPage);
         const startIndex = (page - 1) * pagination.itemsPerPage;
-        const endIndex = Math.min(
-          startIndex + pagination.itemsPerPage,
-          allTNTs.length
-        );
+        const endIndex = Math.min(startIndex + pagination.itemsPerPage, totalCount);
         const paginatedTNTs = allTNTs.slice(startIndex, endIndex);
-
+  
         setOwnedTNTs(paginatedTNTs);
+        setPagination((prev) => ({
+          ...prev,
+          currentPage: page,
+          totalPages,
+          totalCount,
+        }));
       } catch (error) {
         console.error("Error fetching paginated TNTs:", error);
         setError("Failed to fetch TNTs. Please try again later.");
@@ -215,6 +199,8 @@ export default function MyTNTsPage() {
     },
     [address, pagination.itemsPerPage, fetchTotalCount, cacheManager]
   );
+  
+  
 
   const fetchTNTDetailsForAddresses = async (
     tntAddresses: `0x${string}`[],
@@ -276,7 +262,6 @@ export default function MyTNTsPage() {
     const pages = [];
     const { currentPage, totalPages } = pagination;
 
-    // Always show first page
     if (totalPages > 0) {
       pages.push(1);
     }
@@ -463,15 +448,19 @@ export default function MyTNTsPage() {
                         width={400}
                         height={180}
                         className="w-full h-full object-cover transform group-hover:scale-105 transition-transform duration-500"
+                        loading="lazy"
                         onError={(e) => {
                           // Fall back to a gradient background
                           const target = e.currentTarget;
-                          target.src =
-                            "data:image/svg+xml;charset=UTF-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='400' height='180' viewBox='0 0 400 180'%3E%3Cdefs%3E%3ClinearGradient id='grad' x1='0%25' y1='0%25' x2='100%25' y2='100%25'%3E%3Cstop offset='0%25' style='stop-color:%23805ad5;stop-opacity:0.5' /%3E%3Cstop offset='100%25' style='stop-color:%23f6ad55;stop-opacity:0.5' /%3E%3C/linearGradient%3E%3C/defs%3E%3Crect width='400' height='180' fill='url(%23grad)' /%3E%3C/svg%3E";
-                          target.classList.add("object-cover");
+                          target.style.display = 'none';
+                          target.nextElementSibling?.classList.remove('hidden');
                         }}
-                        loading="lazy"
                       />
+                      <div className="hidden absolute inset-0 bg-gradient-to-br from-purple-900/30 via-slate-800/50 to-amber-900/30">
+                        <div className="absolute inset-0 flex items-center justify-center">
+                          <span className="text-4xl opacity-50">🎭</span>
+                        </div>
+                      </div>
                     </div>
                   ) : (
                     <div className="relative w-full h-40 overflow-hidden bg-gradient-to-br from-purple-900/30 via-slate-800/50 to-amber-900/30">
@@ -663,4 +652,8 @@ export default function MyTNTsPage() {
       </div>
     </div>
   );
-}
+});
+
+MyTNTsPage.displayName = 'MyTNTsPage';
+
+export default MyTNTsPage;

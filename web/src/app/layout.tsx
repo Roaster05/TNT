@@ -7,12 +7,18 @@ import { WalletProvider } from "@/hooks/WalletProvider";
 import { Toaster } from "react-hot-toast";
 import ProtectedRouteProvider from "@/components/ProtectedRouteProvider";
 
-const inter = Inter({ subsets: ["latin"] });
+const inter = Inter({ 
+  subsets: ["latin"],
+  display: 'swap', // Optimize font loading
+});
 
 export const metadata: Metadata = {
   title: "TNT - Trust Network Tokens",
   description:
     "Issue and manage Trust Network Tokens (TNTs) - the future of decentralized trust",
+  keywords: ["blockchain", "tokens", "trust", "decentralized", "TNT", "ERC721"],
+  viewport: "width=device-width, initial-scale=1",
+  robots: "index, follow",
 };
 
 export default function RootLayout({
@@ -32,7 +38,17 @@ export default function RootLayout({
           <WalletProvider>
             <ProtectedRouteProvider>{children}</ProtectedRouteProvider>
           </WalletProvider>
-          <Toaster position="top-center" />
+          <Toaster 
+            position="top-center"
+            toastOptions={{
+              duration: 4000,
+              style: {
+                background: '#1e293b',
+                color: '#f8fafc',
+                border: '1px solid #475569',
+              },
+            }}
+          />
         </ThemeProvider>
       </body>
     </html>
